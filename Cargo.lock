@@ -349,6 +349,7 @@ version = "0.1.0"
 dependencies = [
  "actix-rt",
  "actix-web",
+ "edn-rs",
 ]
 
 [[package]]
@@ -467,6 +468,15 @@ name = "dtoa"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
+
+[[package]]
+name = "edn-rs"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d13f2ae32b7a1c14e5f40ac9f8effd743064696bfb16a3b5ef382c57913c425"
+dependencies = [
+ "regex",
+]
 
 [[package]]
 name = "either"
