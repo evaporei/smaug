@@ -8,5 +8,6 @@ edition = "2018"
 
 [dependencies]
 actix-web = "2.0"
-actix-rt = "1.0"
+actix = "0.10.0-alpha.3"
 edn-rs = "0.10.3"
+transistor = "1.0.0-Beta.1"
