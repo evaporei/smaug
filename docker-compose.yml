@@ -1,0 +1,7 @@
+version: '2.3'
+
+services:
+  crux:
+    image: juxt/crux-standalone:20.07-1.10.0
+    ports:
+      - "3000:3000"
