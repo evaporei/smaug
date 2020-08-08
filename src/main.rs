@@ -1,7 +1,7 @@
 use actix_web::{web, middleware::{DefaultHeaders}, App, HttpResponse, HttpServer};
 use edn_rs::{parse_edn, Edn, Serialize, ser_struct};
-use transistor::types::{CruxId, error::CruxError};
-use transistor::http::Action;
+use transistor::types::{CruxId, error::CruxError, response::EntityHistoryElement};
+use transistor::http::{Action, Order};
 use transistor::client::Crux;
 use uuid::Uuid;
 
@@ -178,12 +178,36 @@ impl Handler<AccountTransfer> for DbExecutor {
     }
 }
 
+struct AccountHistory {
+    account_id: String,
+}
+
+impl Message for AccountHistory {
+    type Result = Result<Vec<DbAccount>, DbError>;
+}
+
+impl Handler<AccountHistory> for DbExecutor {
+    type Result = Result<Vec<DbAccount>, DbError>;
+
+    fn handle(&mut self, msg: AccountHistory, _: &mut Self::Context) -> Self::Result {
+        let client = self.0.http_client();
+        let response = client.entity_history(CruxId::new(&msg.account_id).serialize(), Order::Desc, true)?;
+
+        if response.history.is_empty() {
+            return Err(DbError::NilEntity);
+        }
+
+        Ok(response.history.into_iter().map(adapter::crux_history_element_edn_to_db_account).collect::<Vec<DbAccount>>())
+    }
+}
+
 ser_struct! {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 struct DbAccount {
     crux__db___id: CruxId,  // :crux.db/id
     account___amount: usize,// :account/amount
+    tx___tx_time: String,   // :tx/tx-time
 }
 }
 
@@ -193,11 +217,21 @@ impl From<AccountContainer> for DbAccount {
             AccountContainer::Body(body) => Self {
                 crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
                 account___amount: body[":amount"].to_uint().unwrap_or(0),
+                tx___tx_time: "".to_string(),
             },
             AccountContainer::CruxEntity(edn) => Self {
                 crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
                 account___amount: edn[":account/amount"].to_uint().unwrap_or(0),
-            }
+                tx___tx_time: edn[":tx/tx-time"].to_string(),
+            },
+            AccountContainer::CruxHistoryElement(history_element) => {
+                let edn_document = history_element.db__doc.unwrap();
+                Self {
+                    crux__db___id: CruxId::new(&edn_document[":crux.db/id"].to_string()),
+                    account___amount: edn_document[":account/amount"].to_uint().unwrap_or(0),
+                    tx___tx_time: history_element.tx___tx_time,
+                }
+            },
         }
     }
 }
@@ -205,6 +239,7 @@ impl From<AccountContainer> for DbAccount {
 enum AccountContainer {
     Body(Edn),
     CruxEntity(Edn),
+    CruxHistoryElement(EntityHistoryElement),
 }
 
 mod adapter {
@@ -214,6 +249,9 @@ mod adapter {
     }
     pub(crate) fn crux_account_edn_to_db_account(edn: Edn) -> DbAccount {
         AccountContainer::CruxEntity(edn).into()
+    }
+    pub(crate) fn crux_history_element_edn_to_db_account(history_element: EntityHistoryElement) -> DbAccount {
+        AccountContainer::CruxHistoryElement(history_element).into()
     }
 }
 
@@ -236,6 +274,27 @@ impl From<DbAccount> for ResponseAccount {
         Self {
             id: uuid_without_colon,
             amount: db_account.account___amount,
+        }
+    }
+}
+
+ser_struct! {
+struct AccountHistoryElement {
+    id: String,
+    amount: usize,
+    time: String,
+}
+}
+
+impl From<DbAccount> for AccountHistoryElement {
+    fn from(db_account: DbAccount) -> Self {
+        let mut uuid_without_colon = db_account.crux__db___id.serialize();
+        uuid_without_colon.remove(0);
+
+        Self {
+            id: uuid_without_colon,
+            amount: db_account.account___amount,
+            time: db_account.tx___tx_time,
         }
     }
 }
@@ -327,6 +386,21 @@ async fn account_transfer(data: web::Data<State>, source_account_id: web::Path<S
         .body(ResponseAccount::from(db_account).serialize()))
 }
 
+async fn account_history(data: web::Data<State>, account_id: web::Path<String>) -> Result<HttpResponse, HttpResponse> {
+    let response = data.db.send(AccountHistory { account_id: account_id.to_string() }).await;
+    let db_account_history = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+        .map_err(|db_error| match db_error {
+            DbError::NilEntity => HttpResponse::NotFound().finish(),
+            _ => HttpResponse::InternalServerError().finish(),
+        })?;
+
+    let response_history = db_account_history.into_iter().map(AccountHistoryElement::from).collect::<Vec<AccountHistoryElement>>();
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/edn")
+        .body(response_history.serialize()))
+}
+
 fn main() {
     let sys = actix::System::new("app");
 
@@ -345,6 +419,7 @@ fn main() {
             .route("/accounts/{account_id}/deposit", web::post().to(account_deposit))
             .route("/accounts/{account_id}/withdraw", web::post().to(account_withdraw))
             .route("/accounts/{account_id}/transfer", web::post().to(account_transfer))
+            .route("/accounts/{account_id}/history", web::get().to(account_history))
     })
     .bind("127.0.0.1:8000")
     .unwrap()

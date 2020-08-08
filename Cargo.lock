@@ -567,9 +567,9 @@ checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
 
 [[package]]
 name = "edn-rs"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d13f2ae32b7a1c14e5f40ac9f8effd743064696bfb16a3b5ef382c57913c425"
+checksum = "cb1694bf7c4d7da5b4ac8cce5cda91e5cd0dfdb259eb6b4a0e574a8d14a649f1"
 dependencies = [
  "regex",
 ]
@@ -1810,9 +1810,9 @@ dependencies = [
 
 [[package]]
 name = "transistor"
-version = "1.0.0-Beta.1"
+version = "1.0.0-beta.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9182d245f28ce11aae77970ca694792e454874c02dfcf6c63865d6032fec1816"
+checksum = "a0a10066c2a8560ed23e222565cb408734b2199dec514d2a18d21dc132b86ab3"
 dependencies = [
  "edn-rs",
  "reqwest",
