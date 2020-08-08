@@ -100,6 +100,37 @@ impl Handler<AccountDeposit> for DbExecutor {
     }
 }
 
+struct AccountWithdraw {
+    account_id: String,
+    amount: usize,
+}
+
+impl Message for AccountWithdraw {
+    type Result = Result<DbAccount, DbError>;
+}
+
+impl Handler<AccountWithdraw> for DbExecutor {
+    type Result = Result<DbAccount, DbError>;
+
+    fn handle(&mut self, msg: AccountWithdraw, _: &mut Self::Context) -> Self::Result {
+        let client = self.0.http_client();
+        let crux_account = client.entity(CruxId::new(&msg.account_id).serialize())?;
+
+        if crux_account == Edn::Nil {
+            return Err(DbError::NilEntity);
+        }
+
+        let mut db_account = adapter::crux_account_edn_to_db_account(crux_account);
+
+        db_account.account___amount -= msg.amount;
+
+        let action1 = Action::Put(db_account.clone().serialize());
+        client.tx_log(vec![action1])?;
+
+        Ok(db_account)
+    }
+}
+
 ser_struct! {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
@@ -209,6 +240,25 @@ async fn account_deposit(data: web::Data<State>, account_id: web::Path<String>, 
         .body(ResponseAccount::from(db_account).serialize()))
 }
 
+async fn account_withdraw(data: web::Data<State>, account_id: web::Path<String>, body: String) -> Result<HttpResponse, HttpResponse> {
+    let edn_body = parse_edn(&body)
+        .map_err(|_| HttpResponse::BadRequest().finish())?;
+
+    let account_id = account_id.to_string();
+    let amount = edn_body[":amount"].to_uint().unwrap_or(0);
+
+    let response = data.db.send(AccountWithdraw { account_id, amount }).await;
+    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+        .map_err(|db_error| match db_error {
+            DbError::NilEntity => HttpResponse::NotFound().finish(),
+            DbError::CruxError(_) => HttpResponse::InternalServerError().finish(),
+        })?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/edn")
+        .body(ResponseAccount::from(db_account).serialize()))
+}
+
 fn main() {
     let sys = actix::System::new("app");
 
@@ -225,6 +275,7 @@ fn main() {
             .route("/accounts", web::post().to(create_account))
             .route("/accounts/{account_id}", web::get().to(get_account))
             .route("/accounts/{account_id}/deposit", web::post().to(account_deposit))
+            .route("/accounts/{account_id}/withdraw", web::post().to(account_withdraw))
     })
     .bind("127.0.0.1:8000")
     .unwrap()
