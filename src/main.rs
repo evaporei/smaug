@@ -3,6 +3,7 @@ use edn_rs::{parse_edn, Edn, Serialize, ser_struct};
 use transistor::types::{CruxId, error::CruxError};
 use transistor::http::Action;
 use transistor::client::Crux;
+use uuid::Uuid;
 
 use actix::prelude::*;
 
@@ -24,7 +25,6 @@ impl Handler<CreateAccount> for DbExecutor {
     type Result = Result<DbAccount, CruxError>;
 
     fn handle(&mut self, msg: CreateAccount, _: &mut Self::Context) -> Self::Result {
-        // let uuid = format!("{}", uuid::Uuid::new_v4());
         let db_account = msg.account;
 
         let client = self.0.http_client();
@@ -39,15 +39,15 @@ ser_struct! {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 struct DbAccount {
-    crux__db___id: CruxId,
-    account___amount: usize,
+    crux__db___id: CruxId,  // :crux.db/id
+    account___amount: usize,// :account/amount
 }
 }
 
 impl From<Edn> for DbAccount {
     fn from(body: Edn) -> Self {
         Self {
-            crux__db___id: CruxId::new("uuid"),
+            crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
             account___amount: body[":amount"].to_uint().unwrap_or(0),
         }
     }
@@ -64,6 +64,25 @@ struct State {
     db: Addr<DbExecutor>,
 }
 
+ser_struct! {
+struct ResponseAccount {
+    id: String,
+    amount: usize,
+}
+}
+
+impl From<DbAccount> for ResponseAccount {
+    fn from(db_account: DbAccount) -> Self {
+        let mut uuid_without_colon = db_account.crux__db___id.serialize();
+        uuid_without_colon.remove(0);
+
+        Self {
+            id: uuid_without_colon,
+            amount: db_account.account___amount,
+        }
+    }
+}
+
 async fn create_account(data: web::Data<State>, bytes: Bytes) -> Result<HttpResponse, HttpResponse> {
     let body = String::from_utf8(bytes.to_vec())
         .map_err(|_| HttpResponse::BadRequest().finish())?;
@@ -73,18 +92,17 @@ async fn create_account(data: web::Data<State>, bytes: Bytes) -> Result<HttpResp
     let db_account = adapter::account_edn_to_db(edn_body);
 
     let response = data.db.send(CreateAccount { account: db_account }).await;
-    let account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|_| HttpResponse::InternalServerError().finish())?;
 
     Ok(HttpResponse::Created()
         .content_type("application/edn")
-        .body(account.serialize()))
+        .body(ResponseAccount::from(db_account).serialize()))
 }
 
 fn main() {
     let sys = actix::System::new("app");
 
-    // Start 3 parallel db executors
     let addr = SyncArbiter::start(3, || {
         DbExecutor(Crux::new("localhost", "3000"))
     });
@@ -101,6 +119,6 @@ fn main() {
     .unwrap()
     .run();
 
-    println!("Started http server: 127.0.0.1:8080");
+    println!("Started HTTP server: 127.0.0.1:8080");
     let _ = sys.run();
 }
