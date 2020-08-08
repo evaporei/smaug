@@ -15,6 +15,7 @@ impl Actor for DbExecutor {
 
 enum DbError {
     NilEntity,
+    StateConflict,
     CruxError(CruxError),
 }
 
@@ -131,6 +132,52 @@ impl Handler<AccountWithdraw> for DbExecutor {
     }
 }
 
+struct AccountTransfer {
+    source_account_id: String,
+    amount: usize,
+    target_account_id: String,
+}
+
+impl Message for AccountTransfer {
+    type Result = Result<DbAccount, DbError>;
+}
+
+impl Handler<AccountTransfer> for DbExecutor {
+    type Result = Result<DbAccount, DbError>;
+
+    fn handle(&mut self, msg: AccountTransfer, _: &mut Self::Context) -> Self::Result {
+        let client = self.0.http_client();
+        let crux_source_account = client.entity(CruxId::new(&msg.source_account_id).serialize())?;
+
+        if crux_source_account == Edn::Nil {
+            return Err(DbError::NilEntity);
+        }
+
+        let mut db_source_account = adapter::crux_account_edn_to_db_account(crux_source_account);
+
+        if db_source_account.account___amount < msg.amount {
+            return Err(DbError::StateConflict);
+        }
+
+        let crux_target_account = client.entity(CruxId::new(&msg.target_account_id).serialize())?;
+
+        if crux_target_account == Edn::Nil {
+            return Err(DbError::NilEntity);
+        }
+
+        let mut db_target_account = adapter::crux_account_edn_to_db_account(crux_target_account);
+
+        db_source_account.account___amount -= msg.amount;
+        db_target_account.account___amount += msg.amount;
+
+        let action1 = Action::Put(db_source_account.clone().serialize());
+        let action2 = Action::Put(db_target_account.clone().serialize());
+        client.tx_log(vec![action1, action2])?;
+
+        Ok(db_source_account)
+    }
+}
+
 ser_struct! {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
@@ -213,7 +260,7 @@ async fn get_account(data: web::Data<State>, account_id: web::Path<String>) -> R
     let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
-            DbError::CruxError(_) => HttpResponse::InternalServerError().finish(),
+            _ => HttpResponse::InternalServerError().finish(),
         })?;
 
     Ok(HttpResponse::Ok()
@@ -232,7 +279,7 @@ async fn account_deposit(data: web::Data<State>, account_id: web::Path<String>, 
     let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
-            DbError::CruxError(_) => HttpResponse::InternalServerError().finish(),
+            _ => HttpResponse::InternalServerError().finish(),
         })?;
 
     Ok(HttpResponse::Ok()
@@ -251,6 +298,27 @@ async fn account_withdraw(data: web::Data<State>, account_id: web::Path<String>,
     let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
+            _ => HttpResponse::InternalServerError().finish(),
+        })?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/edn")
+        .body(ResponseAccount::from(db_account).serialize()))
+}
+
+async fn account_transfer(data: web::Data<State>, source_account_id: web::Path<String>, body: String) -> Result<HttpResponse, HttpResponse> {
+    let edn_body = parse_edn(&body)
+        .map_err(|_| HttpResponse::BadRequest().finish())?;
+
+    let source_account_id = source_account_id.to_string();
+    let amount = edn_body[":amount"].to_uint().unwrap_or(0);
+    let target_account_id = edn_body[":target-account-id"].to_string();
+
+    let response = data.db.send(AccountTransfer { source_account_id, amount, target_account_id }).await;
+    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+        .map_err(|db_error| match db_error {
+            DbError::NilEntity => HttpResponse::NotFound().finish(),
+            DbError::StateConflict => HttpResponse::Conflict().finish(),
             DbError::CruxError(_) => HttpResponse::InternalServerError().finish(),
         })?;
 
@@ -276,6 +344,7 @@ fn main() {
             .route("/accounts/{account_id}", web::get().to(get_account))
             .route("/accounts/{account_id}/deposit", web::post().to(account_deposit))
             .route("/accounts/{account_id}/withdraw", web::post().to(account_withdraw))
+            .route("/accounts/{account_id}/transfer", web::post().to(account_transfer))
     })
     .bind("127.0.0.1:8000")
     .unwrap()
