@@ -1,4 +1,4 @@
-use actix_web::{web::{self, Bytes}, middleware::{DefaultHeaders}, App, HttpResponse, HttpServer};
+use actix_web::{web, middleware::{DefaultHeaders}, App, HttpResponse, HttpServer};
 use edn_rs::{parse_edn, Edn, Serialize, ser_struct};
 use transistor::types::{CruxId, error::CruxError};
 use transistor::http::Action;
@@ -83,9 +83,7 @@ impl From<DbAccount> for ResponseAccount {
     }
 }
 
-async fn create_account(data: web::Data<State>, bytes: Bytes) -> Result<HttpResponse, HttpResponse> {
-    let body = String::from_utf8(bytes.to_vec())
-        .map_err(|_| HttpResponse::BadRequest().finish())?;
+async fn create_account(data: web::Data<State>, body: String) -> Result<HttpResponse, HttpResponse> {
     let edn_body = parse_edn(&body)
         .map_err(|_| HttpResponse::BadRequest().finish())?;
 
