@@ -1,8 +1,8 @@
-use actix_web::{web, middleware::{DefaultHeaders}, App, HttpResponse, HttpServer};
-use edn_rs::{parse_edn, Edn, Serialize, ser_struct};
-use transistor::types::{CruxId, error::CruxError, response::EntityHistoryElement};
-use transistor::http::{Action, Order};
+use actix_web::{middleware::DefaultHeaders, web, App, HttpResponse, HttpServer};
+use edn_rs::{parse_edn, ser_struct, Edn, Serialize};
 use transistor::client::Crux;
+use transistor::http::{Action, Order};
+use transistor::types::{error::CruxError, response::EntityHistoryElement, CruxId};
 use uuid::Uuid;
 
 use actix::prelude::*;
@@ -191,13 +191,18 @@ impl Handler<AccountHistory> for DbExecutor {
 
     fn handle(&mut self, msg: AccountHistory, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
-        let response = client.entity_history(CruxId::new(&msg.account_id).serialize(), Order::Desc, true)?;
+        let response =
+            client.entity_history(CruxId::new(&msg.account_id).serialize(), Order::Desc, true)?;
 
         if response.history.is_empty() {
             return Err(DbError::NilEntity);
         }
 
-        Ok(response.history.into_iter().map(adapter::crux_history_element_edn_to_db_account).collect::<Vec<DbAccount>>())
+        Ok(response
+            .history
+            .into_iter()
+            .map(adapter::crux_history_element_edn_to_db_account)
+            .collect::<Vec<DbAccount>>())
     }
 }
 
@@ -231,7 +236,7 @@ impl From<AccountContainer> for DbAccount {
                     account___amount: edn_document[":account/amount"].to_uint().unwrap_or(0),
                     tx___tx_time: history_element.tx___tx_time,
                 }
-            },
+            }
         }
     }
 }
@@ -250,7 +255,9 @@ mod adapter {
     pub(crate) fn crux_account_edn_to_db_account(edn: Edn) -> DbAccount {
         AccountContainer::CruxEntity(edn).into()
     }
-    pub(crate) fn crux_history_element_edn_to_db_account(history_element: EntityHistoryElement) -> DbAccount {
+    pub(crate) fn crux_history_element_edn_to_db_account(
+        history_element: EntityHistoryElement,
+    ) -> DbAccount {
         AccountContainer::CruxHistoryElement(history_element).into()
     }
 }
@@ -299,14 +306,22 @@ impl From<DbAccount> for AccountHistoryElement {
     }
 }
 
-async fn create_account(data: web::Data<State>, body: String) -> Result<HttpResponse, HttpResponse> {
-    let edn_body = parse_edn(&body)
-        .map_err(|_| HttpResponse::BadRequest().finish())?;
+async fn create_account(
+    data: web::Data<State>,
+    body: String,
+) -> Result<HttpResponse, HttpResponse> {
+    let edn_body = parse_edn(&body).map_err(|_| HttpResponse::BadRequest().finish())?;
 
     let db_account = adapter::body_account_edn_to_db(edn_body);
 
-    let response = data.db.send(CreateAccount { account: db_account }).await;
-    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+    let response = data
+        .db
+        .send(CreateAccount {
+            account: db_account,
+        })
+        .await;
+    let db_account = response
+        .map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|_| HttpResponse::InternalServerError().finish())?;
 
     Ok(HttpResponse::Created()
@@ -314,9 +329,18 @@ async fn create_account(data: web::Data<State>, body: String) -> Result<HttpResp
         .body(ResponseAccount::from(db_account).serialize()))
 }
 
-async fn get_account(data: web::Data<State>, account_id: web::Path<String>) -> Result<HttpResponse, HttpResponse> {
-    let response = data.db.send(GetAccount { account_id: account_id.to_string() }).await;
-    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+async fn get_account(
+    data: web::Data<State>,
+    account_id: web::Path<String>,
+) -> Result<HttpResponse, HttpResponse> {
+    let response = data
+        .db
+        .send(GetAccount {
+            account_id: account_id.to_string(),
+        })
+        .await;
+    let db_account = response
+        .map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
             _ => HttpResponse::InternalServerError().finish(),
@@ -327,15 +351,19 @@ async fn get_account(data: web::Data<State>, account_id: web::Path<String>) -> R
         .body(ResponseAccount::from(db_account).serialize()))
 }
 
-async fn account_deposit(data: web::Data<State>, account_id: web::Path<String>, body: String) -> Result<HttpResponse, HttpResponse> {
-    let edn_body = parse_edn(&body)
-        .map_err(|_| HttpResponse::BadRequest().finish())?;
+async fn account_deposit(
+    data: web::Data<State>,
+    account_id: web::Path<String>,
+    body: String,
+) -> Result<HttpResponse, HttpResponse> {
+    let edn_body = parse_edn(&body).map_err(|_| HttpResponse::BadRequest().finish())?;
 
     let account_id = account_id.to_string();
     let amount = edn_body[":amount"].to_uint().unwrap_or(0);
 
     let response = data.db.send(AccountDeposit { account_id, amount }).await;
-    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+    let db_account = response
+        .map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
             _ => HttpResponse::InternalServerError().finish(),
@@ -346,15 +374,19 @@ async fn account_deposit(data: web::Data<State>, account_id: web::Path<String>, 
         .body(ResponseAccount::from(db_account).serialize()))
 }
 
-async fn account_withdraw(data: web::Data<State>, account_id: web::Path<String>, body: String) -> Result<HttpResponse, HttpResponse> {
-    let edn_body = parse_edn(&body)
-        .map_err(|_| HttpResponse::BadRequest().finish())?;
+async fn account_withdraw(
+    data: web::Data<State>,
+    account_id: web::Path<String>,
+    body: String,
+) -> Result<HttpResponse, HttpResponse> {
+    let edn_body = parse_edn(&body).map_err(|_| HttpResponse::BadRequest().finish())?;
 
     let account_id = account_id.to_string();
     let amount = edn_body[":amount"].to_uint().unwrap_or(0);
 
     let response = data.db.send(AccountWithdraw { account_id, amount }).await;
-    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+    let db_account = response
+        .map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
             _ => HttpResponse::InternalServerError().finish(),
@@ -365,16 +397,27 @@ async fn account_withdraw(data: web::Data<State>, account_id: web::Path<String>,
         .body(ResponseAccount::from(db_account).serialize()))
 }
 
-async fn account_transfer(data: web::Data<State>, source_account_id: web::Path<String>, body: String) -> Result<HttpResponse, HttpResponse> {
-    let edn_body = parse_edn(&body)
-        .map_err(|_| HttpResponse::BadRequest().finish())?;
+async fn account_transfer(
+    data: web::Data<State>,
+    source_account_id: web::Path<String>,
+    body: String,
+) -> Result<HttpResponse, HttpResponse> {
+    let edn_body = parse_edn(&body).map_err(|_| HttpResponse::BadRequest().finish())?;
 
     let source_account_id = source_account_id.to_string();
     let amount = edn_body[":amount"].to_uint().unwrap_or(0);
     let target_account_id = edn_body[":target-account-id"].to_string();
 
-    let response = data.db.send(AccountTransfer { source_account_id, amount, target_account_id }).await;
-    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+    let response = data
+        .db
+        .send(AccountTransfer {
+            source_account_id,
+            amount,
+            target_account_id,
+        })
+        .await;
+    let db_account = response
+        .map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
             DbError::StateConflict => HttpResponse::Conflict().finish(),
@@ -386,15 +429,27 @@ async fn account_transfer(data: web::Data<State>, source_account_id: web::Path<S
         .body(ResponseAccount::from(db_account).serialize()))
 }
 
-async fn account_history(data: web::Data<State>, account_id: web::Path<String>) -> Result<HttpResponse, HttpResponse> {
-    let response = data.db.send(AccountHistory { account_id: account_id.to_string() }).await;
-    let db_account_history = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+async fn account_history(
+    data: web::Data<State>,
+    account_id: web::Path<String>,
+) -> Result<HttpResponse, HttpResponse> {
+    let response = data
+        .db
+        .send(AccountHistory {
+            account_id: account_id.to_string(),
+        })
+        .await;
+    let db_account_history = response
+        .map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
             _ => HttpResponse::InternalServerError().finish(),
         })?;
 
-    let response_history = db_account_history.into_iter().map(AccountHistoryElement::from).collect::<Vec<AccountHistoryElement>>();
+    let response_history = db_account_history
+        .into_iter()
+        .map(AccountHistoryElement::from)
+        .collect::<Vec<AccountHistoryElement>>();
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
@@ -404,22 +459,34 @@ async fn account_history(data: web::Data<State>, account_id: web::Path<String>) 
 fn main() {
     let sys = actix::System::new("app");
 
-    let addr = SyncArbiter::start(3, || {
-        DbExecutor(Crux::new("localhost", "3000"))
-    });
+    let addr = SyncArbiter::start(3, || DbExecutor(Crux::new("localhost", "3000")));
 
     HttpServer::new(move || {
         App::new()
             .data(State { db: addr.clone() })
-            .wrap(DefaultHeaders::new()
-                .header("Content-Type", "application/edn")
-                .header("Accept", "application/edn"))
+            .wrap(
+                DefaultHeaders::new()
+                    .header("Content-Type", "application/edn")
+                    .header("Accept", "application/edn"),
+            )
             .route("/accounts", web::post().to(create_account))
             .route("/accounts/{account_id}", web::get().to(get_account))
-            .route("/accounts/{account_id}/deposit", web::post().to(account_deposit))
-            .route("/accounts/{account_id}/withdraw", web::post().to(account_withdraw))
-            .route("/accounts/{account_id}/transfer", web::post().to(account_transfer))
-            .route("/accounts/{account_id}/history", web::get().to(account_history))
+            .route(
+                "/accounts/{account_id}/deposit",
+                web::post().to(account_deposit),
+            )
+            .route(
+                "/accounts/{account_id}/withdraw",
+                web::post().to(account_withdraw),
+            )
+            .route(
+                "/accounts/{account_id}/transfer",
+                web::post().to(account_transfer),
+            )
+            .route(
+                "/accounts/{account_id}/history",
+                web::get().to(account_history),
+            )
     })
     .bind("127.0.0.1:8000")
     .unwrap()
