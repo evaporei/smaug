@@ -13,16 +13,27 @@ impl Actor for DbExecutor {
     type Context = SyncContext<Self>;
 }
 
+enum DbError {
+    NilEntity,
+    CruxError(CruxError),
+}
+
+impl From<CruxError> for DbError {
+    fn from(crux_error: CruxError) -> Self {
+        DbError::CruxError(crux_error)
+    }
+}
+
 struct CreateAccount {
     account: DbAccount,
 }
 
 impl Message for CreateAccount {
-    type Result = Result<DbAccount, CruxError>;
+    type Result = Result<DbAccount, DbError>;
 }
 
 impl Handler<CreateAccount> for DbExecutor {
-    type Result = Result<DbAccount, CruxError>;
+    type Result = Result<DbAccount, DbError>;
 
     fn handle(&mut self, msg: CreateAccount, _: &mut Self::Context) -> Self::Result {
         let db_account = msg.account;
@@ -35,6 +46,29 @@ impl Handler<CreateAccount> for DbExecutor {
     }
 }
 
+struct GetAccount {
+    account_id: String,
+}
+
+impl Message for GetAccount {
+    type Result = Result<DbAccount, DbError>;
+}
+
+impl Handler<GetAccount> for DbExecutor {
+    type Result = Result<DbAccount, DbError>;
+
+    fn handle(&mut self, msg: GetAccount, _: &mut Self::Context) -> Self::Result {
+        let client = self.0.http_client();
+        let crux_account = client.entity(CruxId::new(&msg.account_id).serialize())?;
+
+        if crux_account == Edn::Nil {
+            return Err(DbError::NilEntity);
+        }
+
+        Ok(adapter::crux_account_edn_to_db_account(crux_account))
+    }
+}
+
 ser_struct! {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
@@ -44,19 +78,33 @@ struct DbAccount {
 }
 }
 
-impl From<Edn> for DbAccount {
-    fn from(body: Edn) -> Self {
-        Self {
-            crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
-            account___amount: body[":amount"].to_uint().unwrap_or(0),
+impl From<AccountContainer> for DbAccount {
+    fn from(account: AccountContainer) -> Self {
+        match account {
+            AccountContainer::Body(body) => Self {
+                crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
+                account___amount: body[":amount"].to_uint().unwrap_or(0),
+            },
+            AccountContainer::CruxEntity(edn) => Self {
+                crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
+                account___amount: edn[":account/amount"].to_uint().unwrap_or(0),
+            }
         }
     }
 }
 
+enum AccountContainer {
+    Body(Edn),
+    CruxEntity(Edn),
+}
+
 mod adapter {
     use super::*;
-    pub(crate) fn account_edn_to_db(edn: Edn) -> DbAccount {
-        edn.into()
+    pub(crate) fn body_account_edn_to_db(edn: Edn) -> DbAccount {
+        AccountContainer::Body(edn).into()
+    }
+    pub(crate) fn crux_account_edn_to_db_account(edn: Edn) -> DbAccount {
+        AccountContainer::CruxEntity(edn).into()
     }
 }
 
@@ -87,13 +135,26 @@ async fn create_account(data: web::Data<State>, body: String) -> Result<HttpResp
     let edn_body = parse_edn(&body)
         .map_err(|_| HttpResponse::BadRequest().finish())?;
 
-    let db_account = adapter::account_edn_to_db(edn_body);
+    let db_account = adapter::body_account_edn_to_db(edn_body);
 
     let response = data.db.send(CreateAccount { account: db_account }).await;
     let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|_| HttpResponse::InternalServerError().finish())?;
 
     Ok(HttpResponse::Created()
+        .content_type("application/edn")
+        .body(ResponseAccount::from(db_account).serialize()))
+}
+
+async fn get_account(data: web::Data<State>, account_id: web::Path<String>) -> Result<HttpResponse, HttpResponse> {
+    let response = data.db.send(GetAccount { account_id: account_id.to_string() }).await;
+    let db_account = response.map_err(|_| HttpResponse::InternalServerError().finish())?
+        .map_err(|db_error| match db_error {
+            DbError::NilEntity => HttpResponse::NotFound().finish(),
+            DbError::CruxError(_) => HttpResponse::InternalServerError().finish(),
+        })?;
+
+    Ok(HttpResponse::Ok()
         .content_type("application/edn")
         .body(ResponseAccount::from(db_account).serialize()))
 }
@@ -112,6 +173,7 @@ fn main() {
                 .header("Content-Type", "application/edn")
                 .header("Accept", "application/edn"))
             .route("/accounts", web::post().to(create_account))
+            .route("/accounts/{account_id}", web::get().to(get_account))
     })
     .bind("127.0.0.1:8000")
     .unwrap()
