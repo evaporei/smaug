@@ -49,7 +49,7 @@ impl Handler<CreateAccount> for DbExecutor {
             account_operation___type: OperationType::Create,
             account_operation___amount: db_account.account___amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
-            account_operation___target_account_id: CruxIdOption::NoId,
+            account_operation___target_account_id: None,
             tx___tx_time: "".to_string(),
         };
         let action2 = Action::Put(account_operation.serialize(), None);
@@ -114,7 +114,7 @@ impl Handler<AccountDeposit> for DbExecutor {
             account_operation___type: OperationType::Deposit,
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
-            account_operation___target_account_id: CruxIdOption::NoId,
+            account_operation___target_account_id: None,
             tx___tx_time: "".to_string(),
         };
         let action2 = Action::Put(account_operation.serialize(), None);
@@ -154,7 +154,7 @@ impl Handler<AccountWithdraw> for DbExecutor {
             account_operation___type: OperationType::Withdraw,
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
-            account_operation___target_account_id: CruxIdOption::NoId,
+            account_operation___target_account_id: None,
             tx___tx_time: "".to_string(),
         };
         let action2 = Action::Put(account_operation.serialize(), None);
@@ -210,7 +210,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             account_operation___type: OperationType::Transfer,
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_source_account.crux__db___id.clone(),
-            account_operation___target_account_id: CruxIdOption::SomeId(
+            account_operation___target_account_id: Some(
                 db_target_account.crux__db___id.clone(),
             ),
             tx___tx_time: "".to_string(),
@@ -333,31 +333,16 @@ impl From<String> for OperationType {
     }
 }
 
-#[derive(Clone, Debug)]
-enum CruxIdOption {
-    SomeId(CruxId),
-    NoId,
-}
-
-impl Serialize for CruxIdOption {
-    fn serialize(self) -> String {
-        match self {
-            Self::SomeId(crux_id) => crux_id.serialize(),
-            Self::NoId => "nil".to_string(),
-        }
-    }
-}
-
 ser_struct! {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 struct DbAccountOperation {
-    crux__db___id: CruxId,                               // :crux.db/id
-    account_operation___type: OperationType,             // :account-operation/type
-    account_operation___amount: usize,                   // :account-operation/amount
-    account_operation___source_account_id: CruxId,       // :account-operation/source-account-id
-    account_operation___target_account_id: CruxIdOption, // :account-operation/target-account-id
-    tx___tx_time: String,                                // :tx/tx-time
+    crux__db___id: CruxId,                                 // :crux.db/id
+    account_operation___type: OperationType,               // :account-operation/type
+    account_operation___amount: usize,                     // :account-operation/amount
+    account_operation___source_account_id: CruxId,         // :account-operation/source-account-id
+    account_operation___target_account_id: Option<CruxId>, // :account-operation/target-account-id
+    tx___tx_time: String,                                  // :tx/tx-time
 }
 }
 
@@ -375,7 +360,7 @@ impl From<AccountOperationContainer> for DbAccountOperation {
                 account_operation___source_account_id: CruxId::new(
                     &edn[":account-operation/source-account-id"].to_string(),
                 ),
-                account_operation___target_account_id: CruxIdOption::SomeId(CruxId::new(
+                account_operation___target_account_id: Some(CruxId::new(
                     &edn[":account-operation/target-account-id"].to_string(),
                 )),
                 tx___tx_time: edn[":tx/tx-time"].to_string(),
