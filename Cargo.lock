@@ -385,7 +385,6 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "actix-web",
- "edn-rs",
  "transistor",
  "uuid",
 ]
@@ -567,11 +566,11 @@ checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
 
 [[package]]
 name = "edn-rs"
-version = "0.10.4"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb1694bf7c4d7da5b4ac8cce5cda91e5cd0dfdb259eb6b4a0e574a8d14a649f1"
+checksum = "f28dfb965cea9a75ad73a9d17376378ad9ab8b24fdb04c5533fbe03d35badbd4"
 dependencies = [
- "regex",
+ "futures",
 ]
 
 [[package]]
@@ -1810,10 +1809,11 @@ dependencies = [
 
 [[package]]
 name = "transistor"
-version = "1.0.0-beta.2"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0a10066c2a8560ed23e222565cb408734b2199dec514d2a18d21dc132b86ab3"
+checksum = "7973d856ffd39017721c6e5bc402e8ae3dc2d1252d8efcb6412f7684ad5a5159"
 dependencies = [
+ "chrono",
  "edn-rs",
  "reqwest",
 ]
