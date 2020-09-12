@@ -52,7 +52,7 @@ impl Handler<CreateAccount> for DbExecutor {
             account_operation___amount: db_account.account___amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
             account_operation___target_account_id: None,
-            tx___tx_time: "".to_string(),
+            tx___tx_time: Utc::now().to_string(),
         };
         let action2 = Action::Put(account_operation.serialize(), None);
 
@@ -117,7 +117,7 @@ impl Handler<AccountDeposit> for DbExecutor {
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
             account_operation___target_account_id: None,
-            tx___tx_time: "".to_string(),
+            tx___tx_time: Utc::now().to_string(),
         };
         let action2 = Action::Put(account_operation.serialize(), None);
         client.tx_log(vec![action1, action2])?;
@@ -157,7 +157,7 @@ impl Handler<AccountWithdraw> for DbExecutor {
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
             account_operation___target_account_id: None,
-            tx___tx_time: "".to_string(),
+            tx___tx_time: Utc::now().to_string(),
         };
         let action2 = Action::Put(account_operation.serialize(), None);
         client.tx_log(vec![action1, action2])?;
@@ -213,7 +213,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_source_account.crux__db___id.clone(),
             account_operation___target_account_id: Some(db_target_account.crux__db___id.clone()),
-            tx___tx_time: "".to_string(),
+            tx___tx_time: Utc::now().to_string(),
         };
         let action3 = Action::Put(account_operation.serialize(), None);
         client.tx_log(vec![action1, action2, action3])?;
