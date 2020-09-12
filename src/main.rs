@@ -1,6 +1,7 @@
 use actix_web::{middleware::DefaultHeaders, web, App, HttpResponse, HttpServer};
+use chrono::Utc;
+use edn_derive::{Deserialize, Serialize};
 use edn_rs::{Edn, Serialize as SerializeEdn};
-use edn_derive::Serialize;
 use std::str::FromStr;
 use transistor::client::Crux;
 use transistor::edn_rs;
@@ -211,9 +212,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             account_operation___type: OperationType::Transfer,
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_source_account.crux__db___id.clone(),
-            account_operation___target_account_id: Some(
-                db_target_account.crux__db___id.clone(),
-            ),
+            account_operation___target_account_id: Some(db_target_account.crux__db___id.clone()),
             tx___tx_time: "".to_string(),
         };
         let action3 = Action::Put(account_operation.serialize(), None);
@@ -296,9 +295,9 @@ impl Handler<AccountOperations> for DbExecutor {
 #[allow(non_snake_case)]
 #[derive(Serialize, Clone, Debug)]
 struct DbAccount {
-    crux__db___id: CruxId,  // :crux.db/id
-    account___amount: usize,// :account/amount
-    tx___tx_time: String,   // :tx/tx-time
+    crux__db___id: CruxId,   // :crux.db/id
+    account___amount: usize, // :account/amount
+    tx___tx_time: String,    // :tx/tx-time
 }
 
 #[derive(Clone, Debug)]
@@ -369,11 +368,6 @@ impl From<AccountOperationContainer> for DbAccountOperation {
 impl From<AccountContainer> for DbAccount {
     fn from(account: AccountContainer) -> Self {
         match account {
-            AccountContainer::Body(body) => Self {
-                crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
-                account___amount: body[":amount"].to_uint().unwrap_or(0),
-                tx___tx_time: "".to_string(),
-            },
             AccountContainer::CruxEntity(edn) => Self {
                 crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
                 account___amount: edn[":account/amount"].to_uint().unwrap_or(0),
@@ -392,16 +386,12 @@ impl From<AccountContainer> for DbAccount {
 }
 
 enum AccountContainer {
-    Body(Edn),
     CruxEntity(Edn),
     CruxHistoryElement(EntityHistoryElement),
 }
 
 mod adapter {
     use super::*;
-    pub(crate) fn body_account_edn_to_db(edn: Edn) -> DbAccount {
-        AccountContainer::Body(edn).into()
-    }
     pub(crate) fn crux_account_edn_to_db_account(edn: Edn) -> DbAccount {
         AccountContainer::CruxEntity(edn).into()
     }
@@ -495,18 +485,32 @@ impl From<DbAccountOperation> for ResponseAccountOperation {
     }
 }
 
+#[derive(Deserialize)]
+struct RequestAccount {
+    amount: usize,
+}
+
+impl From<RequestAccount> for DbAccount {
+    fn from(req_account: RequestAccount) -> Self {
+        Self {
+            crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
+            account___amount: req_account.amount,
+            tx___tx_time: Utc::now().to_string(),
+        }
+    }
+}
+
 async fn create_account(
     data: web::Data<State>,
     body: String,
 ) -> Result<HttpResponse, HttpResponse> {
-    let edn_body = Edn::from_str(&body).map_err(|_| HttpResponse::BadRequest().finish())?;
-
-    let db_account = adapter::body_account_edn_to_db(edn_body);
+    let req_account: RequestAccount =
+        edn_rs::from_str(&body).map_err(|_| HttpResponse::BadRequest().finish())?;
 
     let response = data
         .db
         .send(CreateAccount {
-            account: db_account,
+            account: req_account.into(),
         })
         .await;
     let db_account = response
