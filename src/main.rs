@@ -1,5 +1,6 @@
 use actix_web::{middleware::DefaultHeaders, web, App, HttpResponse, HttpServer};
-use edn_rs::{ser_struct, Edn, Serialize};
+use edn_rs::{Edn, Serialize as SerializeEdn};
+use edn_derive::Serialize;
 use std::str::FromStr;
 use transistor::client::Crux;
 use transistor::edn_rs;
@@ -292,14 +293,12 @@ impl Handler<AccountOperations> for DbExecutor {
     }
 }
 
-ser_struct! {
 #[allow(non_snake_case)]
-#[derive(Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
 struct DbAccount {
     crux__db___id: CruxId,  // :crux.db/id
     account___amount: usize,// :account/amount
     tx___tx_time: String,   // :tx/tx-time
-}
 }
 
 #[derive(Clone, Debug)]
@@ -310,7 +309,7 @@ enum OperationType {
     Transfer,
 }
 
-impl Serialize for OperationType {
+impl SerializeEdn for OperationType {
     fn serialize(self) -> String {
         match self {
             Self::Create => ":create".to_string(),
@@ -333,9 +332,8 @@ impl From<String> for OperationType {
     }
 }
 
-ser_struct! {
 #[allow(non_snake_case)]
-#[derive(Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
 struct DbAccountOperation {
     crux__db___id: CruxId,                                 // :crux.db/id
     account_operation___type: OperationType,               // :account-operation/type
@@ -343,7 +341,6 @@ struct DbAccountOperation {
     account_operation___source_account_id: CruxId,         // :account-operation/source-account-id
     account_operation___target_account_id: Option<CruxId>, // :account-operation/target-account-id
     tx___tx_time: String,                                  // :tx/tx-time
-}
 }
 
 enum AccountOperationContainer {
@@ -424,11 +421,10 @@ struct State {
     db: Addr<DbExecutor>,
 }
 
-ser_struct! {
+#[derive(Serialize)]
 struct ResponseAccount {
     id: String,
     amount: usize,
-}
 }
 
 impl From<DbAccount> for ResponseAccount {
@@ -443,12 +439,11 @@ impl From<DbAccount> for ResponseAccount {
     }
 }
 
-ser_struct! {
+#[derive(Serialize)]
 struct ResponseAccountHistoryElement {
     id: String,
     amount: usize,
     time: String,
-}
 }
 
 impl From<DbAccount> for ResponseAccountHistoryElement {
@@ -464,7 +459,7 @@ impl From<DbAccount> for ResponseAccountHistoryElement {
     }
 }
 
-ser_struct! {
+#[derive(Serialize)]
 struct ResponseAccountOperation {
     id: String,
     operation_type: OperationType,
@@ -472,7 +467,6 @@ struct ResponseAccountOperation {
     source_account_id: String,
     target_account_id: String,
     time: String,
-}
 }
 
 impl From<DbAccountOperation> for ResponseAccountOperation {
