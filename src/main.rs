@@ -1,7 +1,7 @@
 use actix_web::{middleware::DefaultHeaders, web, App, HttpResponse, HttpServer};
-use chrono::Utc;
+use chrono::{DateTime, Utc, FixedOffset};
 use edn_derive::{Deserialize, Serialize};
-use edn_rs::{Edn, Serialize as SerializeEdn};
+use edn_rs::{Edn, Serialize as SerializeEdn, Deserialize as DeserializeEdn, EdnError};
 use std::str::FromStr;
 use transistor::client::Crux;
 use transistor::edn_rs;
@@ -17,15 +17,23 @@ impl Actor for DbExecutor {
     type Context = SyncContext<Self>;
 }
 
+#[derive(Debug)]
 enum DbError {
     NilEntity,
     StateConflict,
     CruxError(CruxError),
+    EdnError(EdnError),
 }
 
 impl From<CruxError> for DbError {
     fn from(crux_error: CruxError) -> Self {
         DbError::CruxError(crux_error)
+    }
+}
+
+impl From<EdnError> for DbError {
+    fn from(edn_error: EdnError) -> Self {
+        DbError::EdnError(edn_error)
     }
 }
 
@@ -46,15 +54,16 @@ impl Handler<CreateAccount> for DbExecutor {
         let client = self.0.http_client();
         let action1 = Action::Put(db_account.clone().serialize(), None);
 
+        let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
             crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
             account_operation___type: OperationType::Create,
             account_operation___amount: db_account.account___amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
             account_operation___target_account_id: None,
-            tx___tx_time: Utc::now().to_string(),
+            tx___tx_time: Some(tx_time.clone()),
         };
-        let action2 = Action::Put(account_operation.serialize(), None);
+        let action2 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
 
         client.tx_log(vec![action1, action2])?;
 
@@ -111,15 +120,17 @@ impl Handler<AccountDeposit> for DbExecutor {
 
         let action1 = Action::Put(db_account.clone().serialize(), None);
 
+        let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
             crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
             account_operation___type: OperationType::Deposit,
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
             account_operation___target_account_id: None,
-            tx___tx_time: Utc::now().to_string(),
+            tx___tx_time: Some(tx_time.clone()),
         };
-        let action2 = Action::Put(account_operation.serialize(), None);
+        let action2 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
+
         client.tx_log(vec![action1, action2])?;
 
         Ok(db_account)
@@ -151,15 +162,17 @@ impl Handler<AccountWithdraw> for DbExecutor {
         db_account.account___amount -= msg.amount;
 
         let action1 = Action::Put(db_account.clone().serialize(), None);
+
+        let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
             crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
             account_operation___type: OperationType::Withdraw,
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_account.crux__db___id.clone(),
             account_operation___target_account_id: None,
-            tx___tx_time: Utc::now().to_string(),
+            tx___tx_time: Some(tx_time.clone()),
         };
-        let action2 = Action::Put(account_operation.serialize(), None);
+        let action2 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
         client.tx_log(vec![action1, action2])?;
 
         Ok(db_account)
@@ -207,15 +220,16 @@ impl Handler<AccountTransfer> for DbExecutor {
         let action1 = Action::Put(db_source_account.clone().serialize(), None);
         let action2 = Action::Put(db_target_account.clone().serialize(), None);
 
+        let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
             crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
             account_operation___type: OperationType::Transfer,
             account_operation___amount: msg.amount,
             account_operation___source_account_id: db_source_account.crux__db___id.clone(),
             account_operation___target_account_id: Some(db_target_account.crux__db___id.clone()),
-            tx___tx_time: Utc::now().to_string(),
+            tx___tx_time: Some(tx_time.clone()),
         };
-        let action3 = Action::Put(account_operation.serialize(), None);
+        let action3 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
         client.tx_log(vec![action1, action2, action3])?;
 
         Ok(db_source_account)
@@ -227,11 +241,11 @@ struct AccountHistory {
 }
 
 impl Message for AccountHistory {
-    type Result = Result<Vec<DbAccount>, DbError>;
+    type Result = Result<Vec<ResponseAccountHistoryElement>, DbError>;
 }
 
 impl Handler<AccountHistory> for DbExecutor {
-    type Result = Result<Vec<DbAccount>, DbError>;
+    type Result = Result<Vec<ResponseAccountHistoryElement>, DbError>;
 
     fn handle(&mut self, msg: AccountHistory, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
@@ -245,8 +259,8 @@ impl Handler<AccountHistory> for DbExecutor {
         Ok(response
             .history
             .into_iter()
-            .map(adapter::crux_history_element_edn_to_db_account)
-            .collect::<Vec<DbAccount>>())
+            .map(ResponseAccountHistoryElement::from)
+            .collect::<Vec<ResponseAccountHistoryElement>>())
     }
 }
 
@@ -269,12 +283,17 @@ impl Handler<AccountOperations> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let query = Query::find(vec!["?account-operation"])?
+        let query = Query::find(vec![
+            "?account-operation",
+            // "?tx-time",
+        ])?
             .where_clause(vec![
                 "?account-operation :account-operation/source-account-id ?account-id",
+                // "?account-operation :tx/tx-time ?tx-time",
             ])?
-            .args(vec![&format!("?account-id :{}", msg.account_id)])?
             // ORDER TIME IDIOT
+            // .order_by(vec!["?tx-time :asc"])?
+            .args(vec![&format!("?account-id :{}", msg.account_id)])?
             .build()?;
 
         let operations = client.query(query)?;
@@ -287,8 +306,8 @@ impl Handler<AccountOperations> for DbExecutor {
                 let edn_body = client.entity(id).unwrap();
                 edn_body
             })
-            .map(adapter::crux_account_operation_edn_to_db_account_operation)
-            .collect::<Vec<DbAccountOperation>>())
+            .map(|edn| DeserializeEdn::deserialize(&edn))
+            .collect::<Result<Vec<DbAccountOperation>, EdnError>>()?)
     }
 }
 
@@ -297,7 +316,6 @@ impl Handler<AccountOperations> for DbExecutor {
 struct DbAccount {
     crux__db___id: CruxId,   // :crux.db/id
     account___amount: usize, // :account/amount
-    tx___tx_time: String,    // :tx/tx-time
 }
 
 #[derive(Clone, Debug)]
@@ -319,6 +337,28 @@ impl SerializeEdn for OperationType {
     }
 }
 
+impl DeserializeEdn for OperationType {
+    fn deserialize(edn: &Edn) -> Result<Self, EdnError> {
+        match edn {
+            Edn::Key(k) => match &k[..] {
+                ":create" => Ok(Self::Create),
+                ":deposit" => Ok(Self::Deposit),
+                ":withdraw" => Ok(Self::Withdraw),
+                ":transfer" => Ok(Self::Transfer),
+                _ => Err(EdnError::Deserialize("wrong operation-type enum".to_string())),
+            },
+            Edn::Str(s) => match &s[..] {
+                ":create" => Ok(Self::Create),
+                ":deposit" => Ok(Self::Deposit),
+                ":withdraw" => Ok(Self::Withdraw),
+                ":transfer" => Ok(Self::Transfer),
+                _ => Err(EdnError::Deserialize("wrong operation-type enum".to_string())),
+            },
+            _ => Err(EdnError::Deserialize("wrong operation-type type".to_string())),
+        }
+    }
+}
+
 impl From<String> for OperationType {
     fn from(s: String) -> Self {
         match &s[..] {
@@ -332,37 +372,14 @@ impl From<String> for OperationType {
 }
 
 #[allow(non_snake_case)]
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct DbAccountOperation {
     crux__db___id: CruxId,                                 // :crux.db/id
     account_operation___type: OperationType,               // :account-operation/type
     account_operation___amount: usize,                     // :account-operation/amount
     account_operation___source_account_id: CruxId,         // :account-operation/source-account-id
     account_operation___target_account_id: Option<CruxId>, // :account-operation/target-account-id
-    tx___tx_time: String,                                  // :tx/tx-time
-}
-
-enum AccountOperationContainer {
-    CruxEntity(Edn),
-}
-
-impl From<AccountOperationContainer> for DbAccountOperation {
-    fn from(account_operation: AccountOperationContainer) -> Self {
-        match account_operation {
-            AccountOperationContainer::CruxEntity(edn) => Self {
-                crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
-                account_operation___type: edn[":account-operation/type"].to_string().into(),
-                account_operation___amount: edn[":account-operation/amount"].to_uint().unwrap_or(0),
-                account_operation___source_account_id: CruxId::new(
-                    &edn[":account-operation/source-account-id"].to_string(),
-                ),
-                account_operation___target_account_id: Some(CruxId::new(
-                    &edn[":account-operation/target-account-id"].to_string(),
-                )),
-                tx___tx_time: edn[":tx/tx-time"].to_string(),
-            },
-        }
-    }
+    tx___tx_time: Option<String>,                          // :tx/tx-time
 }
 
 impl From<AccountContainer> for DbAccount {
@@ -371,39 +388,19 @@ impl From<AccountContainer> for DbAccount {
             AccountContainer::CruxEntity(edn) => Self {
                 crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
                 account___amount: edn[":account/amount"].to_uint().unwrap_or(0),
-                tx___tx_time: edn[":tx/tx-time"].to_string(),
             },
-            AccountContainer::CruxHistoryElement(history_element) => {
-                let edn_document = history_element.db__doc.unwrap();
-                Self {
-                    crux__db___id: CruxId::new(&edn_document[":crux.db/id"].to_string()),
-                    account___amount: edn_document[":account/amount"].to_uint().unwrap_or(0),
-                    tx___tx_time: history_element.tx___tx_time.to_string(),
-                }
-            }
         }
     }
 }
 
 enum AccountContainer {
     CruxEntity(Edn),
-    CruxHistoryElement(EntityHistoryElement),
 }
 
 mod adapter {
     use super::*;
     pub(crate) fn crux_account_edn_to_db_account(edn: Edn) -> DbAccount {
         AccountContainer::CruxEntity(edn).into()
-    }
-    pub(crate) fn crux_history_element_edn_to_db_account(
-        history_element: EntityHistoryElement,
-    ) -> DbAccount {
-        AccountContainer::CruxHistoryElement(history_element).into()
-    }
-    pub(crate) fn crux_account_operation_edn_to_db_account_operation(
-        edn: Edn,
-    ) -> DbAccountOperation {
-        AccountOperationContainer::CruxEntity(edn).into()
     }
 }
 
@@ -436,15 +433,14 @@ struct ResponseAccountHistoryElement {
     time: String,
 }
 
-impl From<DbAccount> for ResponseAccountHistoryElement {
-    fn from(db_account: DbAccount) -> Self {
-        let mut uuid_without_colon = db_account.crux__db___id.serialize();
-        uuid_without_colon.remove(0);
+impl From<EntityHistoryElement> for ResponseAccountHistoryElement {
+    fn from(history_element: EntityHistoryElement) -> Self {
+        let edn_document = history_element.db__doc.unwrap();
 
         Self {
-            id: uuid_without_colon,
-            amount: db_account.account___amount,
-            time: db_account.tx___tx_time,
+            id: edn_document[":crux.db/id"].to_string(),
+            amount: edn_document[":account/amount"].to_uint().unwrap_or(0),
+            time: history_element.tx___tx_time.to_string(),
         }
     }
 }
@@ -480,7 +476,7 @@ impl From<DbAccountOperation> for ResponseAccountOperation {
             amount: db_account_operation.account_operation___amount,
             source_account_id: source_id_without_colon,
             target_account_id: target_id_without_colon,
-            time: db_account_operation.tx___tx_time,
+            time: db_account_operation.tx___tx_time.unwrap(),
         }
     }
 }
@@ -495,7 +491,6 @@ impl From<RequestAccount> for DbAccount {
         Self {
             crux__db___id: CruxId::new(&Uuid::new_v4().to_string()),
             account___amount: req_account.amount,
-            tx___tx_time: Utc::now().to_string(),
         }
     }
 }
@@ -615,6 +610,7 @@ async fn account_transfer(
             DbError::NilEntity => HttpResponse::NotFound().finish(),
             DbError::StateConflict => HttpResponse::Conflict().finish(),
             DbError::CruxError(_) => HttpResponse::InternalServerError().finish(),
+            DbError::EdnError(_) => HttpResponse::InternalServerError().finish(),
         })?;
 
     Ok(HttpResponse::Ok()
@@ -632,17 +628,12 @@ async fn account_history(
             account_id: account_id.to_string(),
         })
         .await;
-    let db_account_history = response
+    let response_history = response
         .map_err(|_| HttpResponse::InternalServerError().finish())?
         .map_err(|db_error| match db_error {
             DbError::NilEntity => HttpResponse::NotFound().finish(),
             _ => HttpResponse::InternalServerError().finish(),
         })?;
-
-    let response_history = db_account_history
-        .into_iter()
-        .map(ResponseAccountHistoryElement::from)
-        .collect::<Vec<ResponseAccountHistoryElement>>();
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
@@ -661,9 +652,12 @@ async fn account_operations(
         .await;
     let db_account_operations = response
         .map_err(|_| HttpResponse::InternalServerError().finish())?
-        .map_err(|db_error| match db_error {
-            DbError::NilEntity => HttpResponse::NotFound().finish(),
-            _ => HttpResponse::InternalServerError().finish(),
+        .map_err(|db_error| {
+            println!("db_error: {:?}", db_error);
+            match db_error {
+                DbError::NilEntity => HttpResponse::NotFound().finish(),
+                _ => HttpResponse::InternalServerError().finish(),
+            }
         })?;
 
     let response_operations = db_account_operations
