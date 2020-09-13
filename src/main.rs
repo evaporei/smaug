@@ -1,7 +1,7 @@
 use actix_web::{middleware::DefaultHeaders, web, App, HttpResponse, HttpServer};
-use chrono::{DateTime, Utc, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use edn_derive::{Deserialize, Serialize};
-use edn_rs::{Edn, Serialize as SerializeEdn, Deserialize as DeserializeEdn, EdnError};
+use edn_rs::{Deserialize as DeserializeEdn, Edn, EdnError, Serialize as SerializeEdn};
 use std::str::FromStr;
 use transistor::client::Crux;
 use transistor::edn_rs;
@@ -63,7 +63,10 @@ impl Handler<CreateAccount> for DbExecutor {
             account_operation___target_account_id: None,
             tx___tx_time: Some(tx_time.clone()),
         };
-        let action2 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
+        let action2 = Action::Put(
+            account_operation.serialize(),
+            Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
+        );
 
         client.tx_log(vec![action1, action2])?;
 
@@ -129,7 +132,10 @@ impl Handler<AccountDeposit> for DbExecutor {
             account_operation___target_account_id: None,
             tx___tx_time: Some(tx_time.clone()),
         };
-        let action2 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
+        let action2 = Action::Put(
+            account_operation.serialize(),
+            Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
+        );
 
         client.tx_log(vec![action1, action2])?;
 
@@ -172,7 +178,10 @@ impl Handler<AccountWithdraw> for DbExecutor {
             account_operation___target_account_id: None,
             tx___tx_time: Some(tx_time.clone()),
         };
-        let action2 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
+        let action2 = Action::Put(
+            account_operation.serialize(),
+            Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
+        );
         client.tx_log(vec![action1, action2])?;
 
         Ok(db_account)
@@ -229,7 +238,10 @@ impl Handler<AccountTransfer> for DbExecutor {
             account_operation___target_account_id: Some(db_target_account.crux__db___id.clone()),
             tx___tx_time: Some(tx_time.clone()),
         };
-        let action3 = Action::Put(account_operation.serialize(), Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()));
+        let action3 = Action::Put(
+            account_operation.serialize(),
+            Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
+        );
         client.tx_log(vec![action1, action2, action3])?;
 
         Ok(db_source_account)
@@ -287,14 +299,14 @@ impl Handler<AccountOperations> for DbExecutor {
             "?account-operation",
             // "?tx-time",
         ])?
-            .where_clause(vec![
-                "?account-operation :account-operation/source-account-id ?account-id",
-                // "?account-operation :tx/tx-time ?tx-time",
-            ])?
-            // ORDER TIME IDIOT
-            // .order_by(vec!["?tx-time :asc"])?
-            .args(vec![&format!("?account-id :{}", msg.account_id)])?
-            .build()?;
+        .where_clause(vec![
+            "?account-operation :account-operation/source-account-id ?account-id",
+            // "?account-operation :tx/tx-time ?tx-time",
+        ])?
+        // ORDER TIME IDIOT
+        // .order_by(vec!["?tx-time :asc"])?
+        .args(vec![&format!("?account-id :{}", msg.account_id)])?
+        .build()?;
 
         let operations = client.query(query)?;
 
@@ -345,16 +357,22 @@ impl DeserializeEdn for OperationType {
                 ":deposit" => Ok(Self::Deposit),
                 ":withdraw" => Ok(Self::Withdraw),
                 ":transfer" => Ok(Self::Transfer),
-                _ => Err(EdnError::Deserialize("wrong operation-type enum".to_string())),
+                _ => Err(EdnError::Deserialize(
+                    "wrong operation-type enum".to_string(),
+                )),
             },
             Edn::Str(s) => match &s[..] {
                 ":create" => Ok(Self::Create),
                 ":deposit" => Ok(Self::Deposit),
                 ":withdraw" => Ok(Self::Withdraw),
                 ":transfer" => Ok(Self::Transfer),
-                _ => Err(EdnError::Deserialize("wrong operation-type enum".to_string())),
+                _ => Err(EdnError::Deserialize(
+                    "wrong operation-type enum".to_string(),
+                )),
             },
-            _ => Err(EdnError::Deserialize("wrong operation-type type".to_string())),
+            _ => Err(EdnError::Deserialize(
+                "wrong operation-type type".to_string(),
+            )),
         }
     }
 }
@@ -652,12 +670,9 @@ async fn account_operations(
         .await;
     let db_account_operations = response
         .map_err(|_| HttpResponse::InternalServerError().finish())?
-        .map_err(|db_error| {
-            println!("db_error: {:?}", db_error);
-            match db_error {
-                DbError::NilEntity => HttpResponse::NotFound().finish(),
-                _ => HttpResponse::InternalServerError().finish(),
-            }
+        .map_err(|db_error| match db_error {
+            DbError::NilEntity => HttpResponse::NotFound().finish(),
+            _ => HttpResponse::InternalServerError().finish(),
         })?;
 
     let response_operations = db_account_operations
