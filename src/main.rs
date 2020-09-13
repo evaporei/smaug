@@ -590,7 +590,8 @@ async fn account_transfer(
 
     let source_account_id = source_account_id.to_string();
     let amount = edn_body[":amount"].to_uint().unwrap_or(0);
-    let target_account_id = edn_body[":target-account-id"].to_string();
+    let target_account_id: String = DeserializeEdn::deserialize(&edn_body[":target-account-id"])
+        .map_err(|_| HttpResponse::BadRequest().finish())?;
 
     let response = data
         .db
