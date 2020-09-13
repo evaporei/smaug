@@ -93,7 +93,7 @@ impl Handler<GetAccount> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        Ok(adapter::crux_account_edn_to_db_account(crux_account))
+        Ok(crux_account.into())
     }
 }
 
@@ -117,7 +117,7 @@ impl Handler<AccountDeposit> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_account = adapter::crux_account_edn_to_db_account(crux_account);
+        let mut db_account: DbAccount = crux_account.into();
 
         db_account.account___amount += msg.amount;
 
@@ -163,7 +163,7 @@ impl Handler<AccountWithdraw> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_account = adapter::crux_account_edn_to_db_account(crux_account);
+        let mut db_account: DbAccount = crux_account.into();
 
         db_account.account___amount -= msg.amount;
 
@@ -209,7 +209,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_source_account = adapter::crux_account_edn_to_db_account(crux_source_account);
+        let mut db_source_account: DbAccount = crux_source_account.into();
 
         if db_source_account.account___amount < msg.amount {
             return Err(DbError::StateConflict);
@@ -221,7 +221,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_target_account = adapter::crux_account_edn_to_db_account(crux_target_account);
+        let mut db_target_account: DbAccount = crux_target_account.into();
 
         db_source_account.account___amount -= msg.amount;
         db_target_account.account___amount += msg.amount;
@@ -400,25 +400,12 @@ struct DbAccountOperation {
     tx___tx_time: Option<String>,                          // :tx/tx-time
 }
 
-impl From<AccountContainer> for DbAccount {
-    fn from(account: AccountContainer) -> Self {
-        match account {
-            AccountContainer::CruxEntity(edn) => Self {
-                crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
-                account___amount: edn[":account/amount"].to_uint().unwrap_or(0),
-            },
+impl From<Edn> for DbAccount {
+    fn from(edn: Edn) -> Self {
+        Self {
+            crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
+            account___amount: edn[":account/amount"].to_uint().unwrap_or(0),
         }
-    }
-}
-
-enum AccountContainer {
-    CruxEntity(Edn),
-}
-
-mod adapter {
-    use super::*;
-    pub(crate) fn crux_account_edn_to_db_account(edn: Edn) -> DbAccount {
-        AccountContainer::CruxEntity(edn).into()
     }
 }
 
