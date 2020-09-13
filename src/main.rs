@@ -93,7 +93,7 @@ impl Handler<GetAccount> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        Ok(crux_account.into())
+        Ok(DeserializeEdn::deserialize(&crux_account)?)
     }
 }
 
@@ -117,7 +117,7 @@ impl Handler<AccountDeposit> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_account: DbAccount = crux_account.into();
+        let mut db_account: DbAccount = DeserializeEdn::deserialize(&crux_account)?;
 
         db_account.account___amount += msg.amount;
 
@@ -163,7 +163,7 @@ impl Handler<AccountWithdraw> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_account: DbAccount = crux_account.into();
+        let mut db_account: DbAccount = DeserializeEdn::deserialize(&crux_account)?;
 
         db_account.account___amount -= msg.amount;
 
@@ -209,7 +209,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_source_account: DbAccount = crux_source_account.into();
+        let mut db_source_account: DbAccount = DeserializeEdn::deserialize(&crux_source_account)?;
 
         if db_source_account.account___amount < msg.amount {
             return Err(DbError::StateConflict);
@@ -221,7 +221,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_target_account: DbAccount = crux_target_account.into();
+        let mut db_target_account: DbAccount = DeserializeEdn::deserialize(&crux_target_account)?;
 
         db_source_account.account___amount -= msg.amount;
         db_target_account.account___amount += msg.amount;
@@ -324,7 +324,7 @@ impl Handler<AccountOperations> for DbExecutor {
 }
 
 #[allow(non_snake_case)]
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct DbAccount {
     crux__db___id: CruxId,   // :crux.db/id
     account___amount: usize, // :account/amount
@@ -398,15 +398,6 @@ struct DbAccountOperation {
     account_operation___source_account_id: CruxId,         // :account-operation/source-account-id
     account_operation___target_account_id: Option<CruxId>, // :account-operation/target-account-id
     tx___tx_time: Option<String>,                          // :tx/tx-time
-}
-
-impl From<Edn> for DbAccount {
-    fn from(edn: Edn) -> Self {
-        Self {
-            crux__db___id: CruxId::new(&edn[":crux.db/id"].to_string()),
-            account___amount: edn[":account/amount"].to_uint().unwrap_or(0),
-        }
-    }
 }
 
 struct State {
