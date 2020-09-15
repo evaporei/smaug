@@ -1,7 +1,7 @@
 use actix_web::{middleware::DefaultHeaders, web, App, HttpResponse, HttpServer};
 use chrono::{DateTime, FixedOffset, Utc};
 use edn_derive::{Deserialize, Serialize};
-use edn_rs::{Deserialize as DeserializeEdn, Edn, EdnError, Serialize as SerializeEdn};
+use edn_rs::{Edn, EdnError};
 use std::str::FromStr;
 use transistor::client::Crux;
 use transistor::edn_rs;
@@ -52,7 +52,7 @@ impl Handler<CreateAccount> for DbExecutor {
         let db_account = msg.account;
 
         let client = self.0.http_client();
-        let action1 = Action::Put(db_account.clone().serialize(), None);
+        let action1 = Action::Put(edn_rs::to_string(db_account.clone()), None);
 
         let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
@@ -64,7 +64,7 @@ impl Handler<CreateAccount> for DbExecutor {
             tx___tx_time: Some(tx_time.clone()),
         };
         let action2 = Action::Put(
-            account_operation.serialize(),
+            edn_rs::to_string(account_operation),
             Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
         );
 
@@ -87,13 +87,13 @@ impl Handler<GetAccount> for DbExecutor {
 
     fn handle(&mut self, msg: GetAccount, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
-        let crux_account = client.entity(CruxId::new(&msg.account_id).serialize())?;
+        let crux_account = client.entity(edn_rs::to_string(CruxId::new(&msg.account_id)))?;
 
         if crux_account == Edn::Nil {
             return Err(DbError::NilEntity);
         }
 
-        Ok(DeserializeEdn::deserialize(&crux_account)?)
+        Ok(edn_rs::from_edn(&crux_account)?)
     }
 }
 
@@ -111,17 +111,17 @@ impl Handler<AccountDeposit> for DbExecutor {
 
     fn handle(&mut self, msg: AccountDeposit, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
-        let crux_account = client.entity(CruxId::new(&msg.account_id).serialize())?;
+        let crux_account = client.entity(edn_rs::to_string(CruxId::new(&msg.account_id)))?;
 
         if crux_account == Edn::Nil {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_account: DbAccount = DeserializeEdn::deserialize(&crux_account)?;
+        let mut db_account: DbAccount = edn_rs::from_edn(&crux_account)?;
 
         db_account.account___amount += msg.amount;
 
-        let action1 = Action::Put(db_account.clone().serialize(), None);
+        let action1 = Action::Put(edn_rs::to_string(db_account.clone()), None);
 
         let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
@@ -133,7 +133,7 @@ impl Handler<AccountDeposit> for DbExecutor {
             tx___tx_time: Some(tx_time.clone()),
         };
         let action2 = Action::Put(
-            account_operation.serialize(),
+            edn_rs::to_string(account_operation),
             Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
         );
 
@@ -157,17 +157,17 @@ impl Handler<AccountWithdraw> for DbExecutor {
 
     fn handle(&mut self, msg: AccountWithdraw, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
-        let crux_account = client.entity(CruxId::new(&msg.account_id).serialize())?;
+        let crux_account = client.entity(edn_rs::to_string(CruxId::new(&msg.account_id)))?;
 
         if crux_account == Edn::Nil {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_account: DbAccount = DeserializeEdn::deserialize(&crux_account)?;
+        let mut db_account: DbAccount = edn_rs::from_edn(&crux_account)?;
 
         db_account.account___amount -= msg.amount;
 
-        let action1 = Action::Put(db_account.clone().serialize(), None);
+        let action1 = Action::Put(edn_rs::to_string(db_account.clone()), None);
 
         let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
@@ -179,7 +179,7 @@ impl Handler<AccountWithdraw> for DbExecutor {
             tx___tx_time: Some(tx_time.clone()),
         };
         let action2 = Action::Put(
-            account_operation.serialize(),
+            edn_rs::to_string(account_operation),
             Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
         );
         client.tx_log(vec![action1, action2])?;
@@ -203,31 +203,33 @@ impl Handler<AccountTransfer> for DbExecutor {
 
     fn handle(&mut self, msg: AccountTransfer, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
-        let crux_source_account = client.entity(CruxId::new(&msg.source_account_id).serialize())?;
+        let crux_source_account =
+            client.entity(edn_rs::to_string(CruxId::new(&msg.source_account_id)))?;
 
         if crux_source_account == Edn::Nil {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_source_account: DbAccount = DeserializeEdn::deserialize(&crux_source_account)?;
+        let mut db_source_account: DbAccount = edn_rs::from_edn(&crux_source_account)?;
 
         if db_source_account.account___amount < msg.amount {
             return Err(DbError::StateConflict);
         }
 
-        let crux_target_account = client.entity(CruxId::new(&msg.target_account_id).serialize())?;
+        let crux_target_account =
+            client.entity(edn_rs::to_string(CruxId::new(&msg.target_account_id)))?;
 
         if crux_target_account == Edn::Nil {
             return Err(DbError::NilEntity);
         }
 
-        let mut db_target_account: DbAccount = DeserializeEdn::deserialize(&crux_target_account)?;
+        let mut db_target_account: DbAccount = edn_rs::from_edn(&crux_target_account)?;
 
         db_source_account.account___amount -= msg.amount;
         db_target_account.account___amount += msg.amount;
 
-        let action1 = Action::Put(db_source_account.clone().serialize(), None);
-        let action2 = Action::Put(db_target_account.clone().serialize(), None);
+        let action1 = Action::Put(edn_rs::to_string(db_source_account.clone()), None);
+        let action2 = Action::Put(edn_rs::to_string(db_target_account.clone()), None);
 
         let tx_time = Utc::now().to_string();
         let account_operation = DbAccountOperation {
@@ -239,7 +241,7 @@ impl Handler<AccountTransfer> for DbExecutor {
             tx___tx_time: Some(tx_time.clone()),
         };
         let action3 = Action::Put(
-            account_operation.serialize(),
+            edn_rs::to_string(account_operation),
             Some(tx_time.parse::<DateTime<FixedOffset>>().unwrap()),
         );
         client.tx_log(vec![action1, action2, action3])?;
@@ -261,8 +263,11 @@ impl Handler<AccountHistory> for DbExecutor {
 
     fn handle(&mut self, msg: AccountHistory, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
-        let response =
-            client.entity_history(CruxId::new(&msg.account_id).serialize(), Order::Desc, true)?;
+        let response = client.entity_history(
+            edn_rs::to_string(CruxId::new(&msg.account_id)),
+            Order::Desc,
+            true,
+        )?;
 
         if response.history.is_empty() {
             return Err(DbError::NilEntity);
@@ -289,7 +294,7 @@ impl Handler<AccountOperations> for DbExecutor {
 
     fn handle(&mut self, msg: AccountOperations, _: &mut Self::Context) -> Self::Result {
         let client = self.0.http_client();
-        let response = client.entity(CruxId::new(&msg.account_id).serialize())?;
+        let response = client.entity(edn_rs::to_string(CruxId::new(&msg.account_id)))?;
 
         if response == Edn::Nil {
             return Err(DbError::NilEntity);
@@ -313,12 +318,12 @@ impl Handler<AccountOperations> for DbExecutor {
         Ok(operations
             .iter()
             .map(|a| {
-                let id = CruxId::new(&a[0]).serialize();
+                let id = edn_rs::to_string(CruxId::new(&a[0]));
 
                 let edn_body = client.entity(id).unwrap();
                 edn_body
             })
-            .map(|edn| DeserializeEdn::deserialize(&edn))
+            .map(|edn| edn_rs::from_edn(&edn))
             .collect::<Result<Vec<DbAccountOperation>, EdnError>>()?)
     }
 }
@@ -330,63 +335,12 @@ struct DbAccount {
     account___amount: usize, // :account/amount
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 enum OperationType {
     Create,
     Deposit,
     Withdraw,
     Transfer,
-}
-
-impl SerializeEdn for OperationType {
-    fn serialize(self) -> String {
-        match self {
-            Self::Create => ":create".to_string(),
-            Self::Deposit => ":deposit".to_string(),
-            Self::Withdraw => ":withdraw".to_string(),
-            Self::Transfer => ":transfer".to_string(),
-        }
-    }
-}
-
-impl DeserializeEdn for OperationType {
-    fn deserialize(edn: &Edn) -> Result<Self, EdnError> {
-        match edn {
-            Edn::Key(k) => match &k[..] {
-                ":create" => Ok(Self::Create),
-                ":deposit" => Ok(Self::Deposit),
-                ":withdraw" => Ok(Self::Withdraw),
-                ":transfer" => Ok(Self::Transfer),
-                _ => Err(EdnError::Deserialize(
-                    "wrong operation-type enum".to_string(),
-                )),
-            },
-            Edn::Str(s) => match &s[..] {
-                ":create" => Ok(Self::Create),
-                ":deposit" => Ok(Self::Deposit),
-                ":withdraw" => Ok(Self::Withdraw),
-                ":transfer" => Ok(Self::Transfer),
-                _ => Err(EdnError::Deserialize(
-                    "wrong operation-type enum".to_string(),
-                )),
-            },
-            _ => Err(EdnError::Deserialize(
-                "wrong operation-type type".to_string(),
-            )),
-        }
-    }
-}
-
-impl From<String> for OperationType {
-    fn from(s: String) -> Self {
-        match &s[..] {
-            ":create" => Self::Create,
-            ":deposit" => Self::Deposit,
-            ":withdraw" => Self::Withdraw,
-            ":transfer" => Self::Transfer,
-            _ => panic!("deu ruim"),
-        }
-    }
 }
 
 #[allow(non_snake_case)]
@@ -412,7 +366,7 @@ struct ResponseAccount {
 
 impl From<DbAccount> for ResponseAccount {
     fn from(db_account: DbAccount) -> Self {
-        let mut uuid_without_colon = db_account.crux__db___id.serialize();
+        let mut uuid_without_colon = edn_rs::to_string(db_account.crux__db___id);
         uuid_without_colon.remove(0);
 
         Self {
@@ -453,17 +407,15 @@ struct ResponseAccountOperation {
 
 impl From<DbAccountOperation> for ResponseAccountOperation {
     fn from(db_account_operation: DbAccountOperation) -> Self {
-        let mut id_without_colon = db_account_operation.crux__db___id.serialize();
+        let mut id_without_colon = edn_rs::to_string(db_account_operation.crux__db___id);
         id_without_colon.remove(0);
 
-        let mut source_id_without_colon = db_account_operation
-            .account_operation___source_account_id
-            .serialize();
+        let mut source_id_without_colon =
+            edn_rs::to_string(db_account_operation.account_operation___source_account_id);
         source_id_without_colon.remove(0);
 
-        let mut target_id_without_colon = db_account_operation
-            .account_operation___target_account_id
-            .serialize();
+        let mut target_id_without_colon =
+            edn_rs::to_string(db_account_operation.account_operation___target_account_id);
         target_id_without_colon.remove(0);
 
         Self {
@@ -510,7 +462,7 @@ async fn create_account(
 
     Ok(HttpResponse::Created()
         .content_type("application/edn")
-        .body(ResponseAccount::from(db_account).serialize()))
+        .body(edn_rs::to_string(ResponseAccount::from(db_account))))
 }
 
 async fn get_account(
@@ -532,7 +484,7 @@ async fn get_account(
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
-        .body(ResponseAccount::from(db_account).serialize()))
+        .body(edn_rs::to_string(ResponseAccount::from(db_account))))
 }
 
 async fn account_deposit(
@@ -555,7 +507,7 @@ async fn account_deposit(
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
-        .body(ResponseAccount::from(db_account).serialize()))
+        .body(edn_rs::to_string(ResponseAccount::from(db_account))))
 }
 
 async fn account_withdraw(
@@ -578,7 +530,7 @@ async fn account_withdraw(
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
-        .body(ResponseAccount::from(db_account).serialize()))
+        .body(edn_rs::to_string(ResponseAccount::from(db_account))))
 }
 
 async fn account_transfer(
@@ -590,7 +542,7 @@ async fn account_transfer(
 
     let source_account_id = source_account_id.to_string();
     let amount = edn_body[":amount"].to_uint().unwrap_or(0);
-    let target_account_id: String = DeserializeEdn::deserialize(&edn_body[":target-account-id"])
+    let target_account_id: String = edn_rs::from_edn(&edn_body[":target-account-id"])
         .map_err(|_| HttpResponse::BadRequest().finish())?;
 
     let response = data
@@ -612,7 +564,7 @@ async fn account_transfer(
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
-        .body(ResponseAccount::from(db_account).serialize()))
+        .body(edn_rs::to_string(ResponseAccount::from(db_account))))
 }
 
 async fn account_history(
@@ -634,7 +586,7 @@ async fn account_history(
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
-        .body(response_history.serialize()))
+        .body(edn_rs::to_string(response_history)))
 }
 
 async fn account_operations(
@@ -661,7 +613,7 @@ async fn account_operations(
 
     Ok(HttpResponse::Ok()
         .content_type("application/edn")
-        .body(response_operations.serialize()))
+        .body(edn_rs::to_string(response_operations)))
 }
 
 fn main() {
