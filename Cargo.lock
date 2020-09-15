@@ -556,9 +556,9 @@ checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
 
 [[package]]
 name = "edn-derive"
-version = "0.3.7"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7683b7023e638b4c3c709adfa8c14aa4aeb9e8da31c128216092acd206f7cf45"
+checksum = "132e2c195e57d805deb1041234d6e5f54fb0b8a4fcfa077d03b58e792ab25603"
 dependencies = [
  "edn-rs",
  "proc-macro2",
@@ -568,9 +568,9 @@ dependencies = [
 
 [[package]]
 name = "edn-rs"
-version = "0.14.2"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0b4b21fd3967048af82fd0fa55e1e4a4d585a671a187dfbf1929ecafa5294fa"
+checksum = "05943712eb94ab9ae99c5221e59f5623593f6493a753b03a1fb71ef886494353"
 dependencies = [
  "futures",
 ]
@@ -1823,9 +1823,9 @@ dependencies = [
 
 [[package]]
 name = "transistor"
-version = "1.3.8"
+version = "1.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaff2876145619d12e742ddbe5c1d01c0e2326f26cd3bb6f1b306a0e52f7989b"
+checksum = "68cdabc2565c2b8025642a700fd573968933584d66c16363b44d86821e504450"
 dependencies = [
  "chrono",
  "edn-rs",
