@@ -401,7 +401,7 @@ struct ResponseAccountOperation {
     operation_type: OperationType,
     amount: usize,
     source_account_id: String,
-    target_account_id: String,
+    target_account_id: Option<String>,
     time: String,
 }
 
@@ -414,16 +414,20 @@ impl From<DbAccountOperation> for ResponseAccountOperation {
             edn_rs::to_string(db_account_operation.account_operation___source_account_id);
         source_id_without_colon.remove(0);
 
-        let mut target_id_without_colon =
-            edn_rs::to_string(db_account_operation.account_operation___target_account_id);
-        target_id_without_colon.remove(0);
-
         Self {
             id: id_without_colon,
             operation_type: db_account_operation.account_operation___type,
             amount: db_account_operation.account_operation___amount,
             source_account_id: source_id_without_colon,
-            target_account_id: target_id_without_colon,
+            target_account_id: db_account_operation
+                .account_operation___target_account_id
+                .map(|target_id| {
+                    let mut target_id_without_colon = edn_rs::to_string(target_id);
+
+                    target_id_without_colon.remove(0);
+
+                    target_id_without_colon
+                }),
             time: db_account_operation.tx___tx_time.unwrap(),
         }
     }
