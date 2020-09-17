@@ -556,9 +556,9 @@ checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
 
 [[package]]
 name = "edn-derive"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "132e2c195e57d805deb1041234d6e5f54fb0b8a4fcfa077d03b58e792ab25603"
+checksum = "5d9b54ba318d4899ae728b0417ce92dd6cdefc568878b36970685b58f30ee915"
 dependencies = [
  "edn-rs",
  "proc-macro2",

@@ -10,6 +10,6 @@ edition = "2018"
 actix-web = "2.0"
 actix = "0.10.0-alpha.3"
 transistor = "1.3.9"
-edn-derive = "0.4.1"
+edn-derive = "0.4.2"
 uuid = { version = "0.8", features = ["v4"] }
 chrono = "0.4"
